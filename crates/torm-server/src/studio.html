@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TORM Studio - ToonStore Database Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+
+        .header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            color: #58a6ff;
+        }
+
+        .stats {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-label {
+            color: #8b949e;
+            font-size: 0.75rem;
+        }
+
+        .stat-value {
+            color: #58a6ff;
+            font-weight: 600;
+        }
+
+        .container {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+
+        .sidebar {
+            width: 250px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            font-size: 0.875rem;
+            color: #8b949e;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+
+        .collection-list {
+            list-style: none;
+        }
+
+        .collection-item {
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .collection-item:hover {
+            background: #21262d;
+        }
+
+        .collection-item.active {
+            background: #1f6feb;
+            color: white;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            align-items: center;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 0.5rem;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+        }
+
+        button {
+            padding: 0.5rem 1rem;
+            background: #238636;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #2ea043;
+        }
+
+        button.secondary {
+            background: #21262d;
+        }
+
+        button.secondary:hover {
+            background: #30363d;
+        }
+
+        button.danger {
+            background: #da3633;
+        }
+
+        button.danger:hover {
+            background: #f85149;
+        }
+
+        .data-table {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .table-row {
+            display: flex;
+            padding: 1rem;
+            border-bottom: 1px solid #30363d;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .table-row:hover {
+            background: #21262d;
+        }
+
+        .table-row:last-child {
+            border-bottom: none;
+        }
+
+        .table-header {
+            background: #0d1117;
+            font-weight: 600;
+        }
+
+        .table-cell {
+            flex: 1;
+            padding: 0 0.5rem;
+        }
+
+        .table-cell.key {
+            width: 30%;
+            font-family: 'Monaco', 'Menlo', monospace;
+            color: #58a6ff;
+        }
+
+        .table-cell.value {
+            width: 50%;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.875rem;
+        }
+
+        .table-cell.actions {
+            width: 20%;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        .btn-small {
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-header h2 {
+            font-size: 1.25rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #8b949e;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #8b949e;
+            font-size: 0.875rem;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 0.5rem;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-family: 'Monaco', 'Menlo', monospace;
+            resize: vertical;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #8b949e;
+        }
+
+        .empty-state h3 {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #30363d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎨 TORM Studio</h1>
+        <div class="stats">
+            <div class="stat-item">
+                <span class="stat-label">Total Keys</span>
+                <span class="stat-value" id="totalKeys">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Collections</span>
+                <span class="stat-value" id="totalCollections">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <h3>Collections</h3>
+            <ul class="collection-list" id="collectionList"></ul>
+        </div>
+
+        <div class="main-content">
+            <div class="toolbar">
+                <input type="text" id="searchInput" placeholder="Search keys..." />
+                <button id="refreshBtn" class="secondary">🔄 Refresh</button>
+                <button id="createBtn">+ Create</button>
+            </div>
+
+            <div id="dataContainer"></div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal" id="editModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Edit Key</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Key</label>
+                <input type="text" id="modalKey" />
+            </div>
+            <div class="form-group">
+                <label>Value (JSON)</label>
+                <textarea id="modalValue"></textarea>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button class="secondary" onclick="closeModal()">Cancel</button>
+                <button id="saveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentCollection = null;
+        let allKeys = [];
+
+        // Load collections on startup
+        async function loadCollections() {
+            try {
+                const response = await fetch('/api/collections');
+                const data = await response.json();
+                const list = document.getElementById('collectionList');
+                list.innerHTML = '';
+                
+                data.collections.forEach(collection => {
+                    const li = document.createElement('li');
+                    li.className = 'collection-item';
+                    li.textContent = collection;
+                    li.onclick = () => loadCollection(collection);
+                    list.appendChild(li);
+                });
+
+                document.getElementById('totalCollections').textContent = data.collections.length;
+            } catch (error) {
+                console.error('Failed to load collections:', error);
+            }
+        }
+
+        // Load collection data
+        async function loadCollection(collection) {
+            currentCollection = collection;
+            document.querySelectorAll('.collection-item').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            try {
+                const response = await fetch(`/api/collections/${collection}`);
+                const data = await response.json();
+                allKeys = data.data;
+                renderData(allKeys);
+            } catch (error) {
+                console.error('Failed to load collection data:', error);
+            }
+        }
+
+        // Render data table
+        function renderData(data) {
+            const container = document.getElementById('dataContainer');
+            
+            if (data.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No data found</h3>
+                        <p>Create your first key to get started</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="data-table">
+                    <div class="table-row table-header">
+                        <div class="table-cell key">Key</div>
+                        <div class="table-cell value">Value</div>
+                        <div class="table-cell actions">Actions</div>
+                    </div>
+                    ${data.map(item => `
+                        <div class="table-row">
+                            <div class="table-cell key">${item.key}</div>
+                            <div class="table-cell value">${JSON.stringify(item.value).substring(0, 100)}...</div>
+                            <div class="table-cell actions">
+                                <button class="btn-small secondary" onclick='editKey(${JSON.stringify(item)})'>Edit</button>
+                                <button class="btn-small danger" onclick='deleteKey("${item.key}")'>Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Load stats
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                document.getElementById('totalKeys').textContent = data.total_keys;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        // Edit key
+        function editKey(item) {
+            document.getElementById('modalTitle').textContent = 'Edit Key';
+            document.getElementById('modalKey').value = item.key;
+            document.getElementById('modalKey').disabled = true;
+            document.getElementById('modalValue').value = JSON.stringify(item.value, null, 2);
+            document.getElementById('editModal').classList.add('active');
+            
+            document.getElementById('saveBtn').onclick = async () => {
+                const key = document.getElementById('modalKey').value;
+                const value = JSON.parse(document.getElementById('modalValue').value);
+                
+                await fetch(`/api/keys/${encodeURIComponent(key)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value })
+                });
+                
+                closeModal();
+                if (currentCollection) loadCollection(currentCollection);
+            };
+        }
+
+        // Create key
+        document.getElementById('createBtn').onclick = () => {
+            document.getElementById('modalTitle').textContent = 'Create Key';
+            document.getElementById('modalKey').value = '';
+            document.getElementById('modalKey').disabled = false;
+            document.getElementById('modalValue').value = '{}';
+            document.getElementById('editModal').classList.add('active');
+            
+            document.getElementById('saveBtn').onclick = async () => {
+                const key = document.getElementById('modalKey').value;
+                const value = JSON.parse(document.getElementById('modalValue').value);
+                
+                await fetch('/api/keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key, value })
+                });
+                
+                closeModal();
+                loadCollections();
+                if (currentCollection) loadCollection(currentCollection);
+            };
+        };
+
+        // Delete key
+        async function deleteKey(key) {
+            if (!confirm(`Delete key "${key}"?`)) return;
+            
+            await fetch(`/api/keys/${encodeURIComponent(key)}`, {
+                method: 'DELETE'
+            });
+            
+            if (currentCollection) loadCollection(currentCollection);
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('editModal').classList.remove('active');
+        }
+
+        // Search
+        document.getElementById('searchInput').oninput = (e) => {
+            const search = e.target.value.toLowerCase();
+            const filtered = allKeys.filter(item => 
+                item.key.toLowerCase().includes(search)
+            );
+            renderData(filtered);
+        };
+
+        // Refresh
+        document.getElementById('refreshBtn').onclick = () => {
+            loadCollections();
+            loadStats();
+            if (currentCollection) loadCollection(currentCollection);
+        };
+
+        // Initialize
+        loadCollections();
+        loadStats();
+    </script>
+</body>
+</html>

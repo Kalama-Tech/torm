@@ -36,12 +36,14 @@
 
 mod db;
 mod error;
+mod migration;
 mod model;
 mod query;
 mod validation;
 
 pub use db::TormDb;
 pub use error::{Error, Result};
+pub use migration::{Migration, MigrationFile, MigrationManager, MigrationStatus};
 pub use model::Model;
 pub use query::{Query, QueryBuilder, SortOrder};
 pub use validation::{ValidationError, ValidationErrors, Validator, Validators};

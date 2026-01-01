@@ -1,0 +1,36 @@
+{
+    "name": "toonstore/torm",
+    "description": "ToonStore ORM Client for PHP - A Mongoose-style ORM for ToonStore database",
+    "type": "library",
+    "keywords": ["toonstore", "orm", "database", "redis", "toon"],
+    "homepage": "https://github.com/toonstore/torm",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "ToonStore Team",
+            "email": "info@toonstore.dev"
+        }
+    ],
+    "require": {
+        "php": ">=8.0",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Toonstore\\Torm\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Toonstore\\Torm\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

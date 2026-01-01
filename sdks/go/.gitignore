@@ -1,0 +1,6 @@
+# vendor/
+*.exe
+*.test
+*.prof
+*.out
+.DS_Store

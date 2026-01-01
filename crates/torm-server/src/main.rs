@@ -2,6 +2,8 @@
 //!
 //! Provides HTTP API for multi-language TORM support
 
+mod studio;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -9,13 +11,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use torm::TormDb;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, Level};
-use tracing_subscriber;
 
 #[derive(Clone)]
 struct AppState {
@@ -45,7 +47,12 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let state = AppState { db };
+    let state = AppState { db: db.clone() };
+
+    // Create studio state
+    let studio_state = studio::StudioState {
+        redis_client: Arc::new(db.connection().clone()),
+    };
 
     // Build router
     let app = Router::new()
@@ -61,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/:collection/query", post(query_documents))
         .route("/api/:collection/count", get(count_documents))
+        .nest("/studio", studio::studio_router(studio_state))
         .layer(CorsLayer::permissive())
         .with_state(Arc::new(state));
 
@@ -68,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
     info!("🚀 TORM Server listening on http://{}", addr);
     info!("📚 API Documentation: http://{}/", addr);
+    info!("🎨 TORM Studio: http://{}/studio", addr);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -345,7 +354,9 @@ async fn delete_document(
 // Query documents
 #[derive(Deserialize)]
 struct QueryRequest {
+    #[allow(dead_code)]
     filters: Option<serde_json::Value>,
+    #[allow(dead_code)]
     sort: Option<serde_json::Value>,
     limit: Option<usize>,
     skip: Option<usize>,
