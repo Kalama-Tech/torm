@@ -73,7 +73,31 @@ function findConfig(): TormConfig | null {
     if (fs.existsSync(configPath)) {
       console.log(`📝 Found config: ${configPath}\n`);
       try {
-        if (configPath.endsWith('.js')) {
+        if (configPath.endsWith('.ts')) {
+          // Check if TypeScript loader is available
+          const hasLoader = checkTypeScriptLoader();
+          
+          if (!hasLoader) {
+            console.error('⚠️  TypeScript config found but tsx/ts-node not installed');
+            console.error('   Install with: npm install -D tsx');
+            console.error('   Or use torm.config.js instead\n');
+            continue;
+          }
+          
+          // Try to register TypeScript loader
+          try {
+            require('tsx/cjs');
+          } catch {
+            try {
+              require('ts-node/register');
+            } catch {
+              // Loader exists but can't register - try direct require anyway
+            }
+          }
+          
+          const config = require(configPath);
+          return config.default || config;
+        } else if (configPath.endsWith('.js')) {
           const config = require(configPath);
           return config.default || config;
         }
@@ -92,35 +116,43 @@ async function studio() {
   // Load config
   const config = findConfig();
   
+  // If no config found, create one based on project type
   if (!config) {
-    console.log('⚠️  No torm.config.ts found in current directory\n');
+    console.log('⚠️  No torm.config found in current directory\n');
     console.log('Creating a default config for you...\n');
     
-    // Create example config
-    const exampleConfig = `/**
- * TORM Configuration
- * Define your ToonStoreDB connection here
- */
-
-export default {
-  // ToonStoreDB connection
-  dbCredentials: {
-    host: 'localhost',
-    port: 6379,
-    // For cloud/remote databases:
-    // password: process.env.TOONSTORE_PASSWORD,
-    // url: 'redis://user:pass@host:port',
-  },
-
-  // Studio configuration
-  studio: {
-    port: 4983, // Studio port (like Drizzle)
-  },
-};
-`;
+    // Detect project type
+    const isTypeScriptProject = detectTypeScriptProject();
     
-    fs.writeFileSync(path.join(process.cwd(), 'torm.config.ts'), exampleConfig);
-    console.log('✅ Created torm.config.ts');
+    if (isTypeScriptProject) {
+      console.log('📦 TypeScript project detected');
+      // Check for TypeScript loaders
+      const hasTsxOrTsNode = checkTypeScriptLoader();
+      
+      if (!hasTsxOrTsNode) {
+        console.log('⚠️  TypeScript runtime not found');
+        console.log('   Installing tsx for TypeScript support...\n');
+        
+        // Try to install tsx
+        try {
+          const { execSync } = require('child_process');
+          execSync('npm install -D tsx', { stdio: 'inherit' });
+          console.log('\n✅ Installed tsx\n');
+          createTypeScriptConfig();
+        } catch (e) {
+          console.log('\n⚠️  Could not auto-install tsx');
+          console.log('   Creating .js config instead\n');
+          createJavaScriptConfig();
+        }
+      } else {
+        createTypeScriptConfig();
+      }
+    } else {
+      console.log('📦 JavaScript project detected');
+      createJavaScriptConfig();
+    }
+    
+    console.log('✅ Created config file');
     console.log('   Edit this file with your database credentials\n');
     console.log('   Then run `torm studio` again\n');
     process.exit(0);
@@ -246,9 +278,293 @@ async function migrate() {
 
 async function generate() {
   console.log('🔧 Generating TypeScript types from database...\n');
-  console.log('⚠️  This feature is coming soon!');
-  console.log('💡 For now, define types manually in your code.\n');
-  process.exit(0);
+  
+  const config = findConfig();
+  
+  if (!config) {
+    console.error('❌ No torm.config found');
+    console.error('   Create torm.config.js first\n');
+    process.exit(1);
+  }
+
+  const dbOptions = {
+    host: config.dbCredentials?.host || process.env.TOONSTORE_HOST || 'localhost',
+    port: config.dbCredentials?.port || Number(process.env.TOONSTORE_PORT) || 6379,
+    url: config.dbCredentials?.url || process.env.TOONSTORE_URL,
+  };
+
+  const Redis = require('ioredis');
+  const redis = dbOptions.url ? new Redis(dbOptions.url) : new Redis(dbOptions);
+
+  try {
+    console.log('📊 Scanning database for collections...\n');
+
+    // Get all keys
+    const allKeys = await redis.keys('toonstore:*');
+    
+    if (allKeys.length === 0) {
+      console.log('⚠️  No data found in database');
+      console.log('💡 Create some models and data first, then run generate\n');
+      await redis.quit();
+      process.exit(0);
+    }
+
+    // Group keys by model name
+    const modelMap: { [key: string]: any[] } = {};
+    
+    for (const key of allKeys) {
+      // Key format: toonstore:ModelName:id
+      const parts = key.split(':');
+      if (parts.length >= 3 && parts[0] === 'toonstore') {
+        const modelName = parts[1];
+        if (modelName === '_migrations') continue; // Skip internal keys
+        
+        if (!modelMap[modelName]) {
+          modelMap[modelName] = [];
+        }
+        
+        const data = await redis.get(key);
+        if (data) {
+          try {
+            const parsed = JSON.parse(data);
+            modelMap[modelName].push(parsed);
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+      }
+    }
+
+    const modelNames = Object.keys(modelMap);
+    
+    if (modelNames.length === 0) {
+      console.log('⚠️  No valid models found in database\n');
+      await redis.quit();
+      process.exit(0);
+    }
+
+    console.log(`✅ Found ${modelNames.length} model(s): ${modelNames.join(', ')}\n`);
+
+    // Generate TypeScript interfaces
+    let output = `/**
+ * Auto-generated TypeScript types from ToonStoreDB
+ * Generated: ${new Date().toISOString()}
+ * 
+ * ⚠️  DO NOT EDIT MANUALLY - This file is auto-generated
+ * Run 'npx torm generate' to regenerate
+ */
+
+`;
+
+    for (const modelName of modelNames) {
+      const documents = modelMap[modelName];
+      console.log(`📝 Analyzing ${modelName} (${documents.length} document${documents.length > 1 ? 's' : ''})...`);
+
+      // Infer types from all documents
+      const fieldTypes: { [key: string]: Set<string> } = {};
+      
+      for (const doc of documents) {
+        for (const [field, value] of Object.entries(doc)) {
+          if (!fieldTypes[field]) {
+            fieldTypes[field] = new Set();
+          }
+          fieldTypes[field].add(inferType(value));
+        }
+      }
+
+      // Generate interface - capitalize first letter for TypeScript convention
+      const interfaceName = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+      output += `export interface ${interfaceName} {\n`;
+      
+      // Sort fields: _id and metadata first, then alphabetically
+      const fields = Object.keys(fieldTypes).sort((a, b) => {
+        if (a.startsWith('_') && !b.startsWith('_')) return -1;
+        if (!a.startsWith('_') && b.startsWith('_')) return 1;
+        return a.localeCompare(b);
+      });
+
+      for (const field of fields) {
+        const types = Array.from(fieldTypes[field]);
+        const typeStr = types.length > 1 ? types.join(' | ') : types[0];
+        
+        // Check if field is optional (not present in all documents)
+        const isOptional = documents.some(doc => !(field in doc));
+        const optionalMarker = isOptional ? '?' : '';
+        
+        output += `  ${field}${optionalMarker}: ${typeStr};\n`;
+      }
+      
+      output += `}\n\n`;
+    }
+
+    // Write to file
+    const outputDir = path.join(process.cwd(), 'src', 'generated');
+    const outputFile = path.join(outputDir, 'torm-types.ts');
+
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    fs.writeFileSync(outputFile, output);
+
+    console.log(`\n✅ Generated types for ${modelNames.length} model(s)`);
+    console.log(`📄 Output: ${outputFile}\n`);
+    
+    console.log('💡 Usage:');
+    const interfaceNames = modelNames.map(name => name.charAt(0).toUpperCase() + name.slice(1));
+    console.log(`   import { ${interfaceNames.join(', ')} } from './generated/torm-types';\n`);
+
+    await redis.quit();
+  } catch (error: any) {
+    console.error(`\n❌ Error: ${error.message}\n`);
+    await redis.quit();
+    process.exit(1);
+  }
+}
+
+function inferType(value: any): string {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  
+  const type = typeof value;
+  
+  if (type === 'string') return 'string';
+  if (type === 'number') return 'number';
+  if (type === 'boolean') return 'boolean';
+  
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'any[]';
+    
+    // Infer array element types
+    const elementTypes = new Set(value.map(inferType));
+    if (elementTypes.size === 1) {
+      return `${Array.from(elementTypes)[0]}[]`;
+    }
+    return `(${Array.from(elementTypes).join(' | ')})[]`;
+  }
+  
+  if (type === 'object') return 'any'; // Could be more sophisticated
+  
+  return 'any';
+}
+
+function detectTypeScriptProject(): boolean {
+  const cwd = process.cwd();
+  
+  // Check for tsconfig.json
+  if (fs.existsSync(path.join(cwd, 'tsconfig.json'))) {
+    return true;
+  }
+  
+  // Check package.json for TypeScript
+  const pkgPath = path.join(cwd, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      
+      // Check dependencies
+      const allDeps = {
+        ...pkg.dependencies,
+        ...pkg.devDependencies,
+      };
+      
+      if (allDeps['typescript'] || allDeps['@types/node']) {
+        return true;
+      }
+      
+      // Check if main/types field points to .ts files
+      if (pkg.main?.endsWith('.ts') || pkg.types?.endsWith('.ts')) {
+        return true;
+      }
+    } catch (e) {
+      // Invalid package.json, assume JS
+    }
+  }
+  
+  // Default to JavaScript
+  return false;
+}
+
+function checkTypeScriptLoader(): boolean {
+  const pkgPath = path.join(process.cwd(), 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const allDeps = {
+        ...pkg.dependencies,
+        ...pkg.devDependencies,
+      };
+      
+      return !!(allDeps['tsx'] || allDeps['ts-node']);
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function createTypeScriptConfig(): void {
+  const config = `/**
+ * TORM Configuration
+ * Define your ToonStoreDB connection here
+ */
+
+export default {
+  // ToonStoreDB connection
+  dbCredentials: {
+    host: 'localhost',
+    port: 6379,
+    // For cloud/remote databases:
+    // password: process.env.TOONSTORE_PASSWORD,
+    // url: 'redis://user:pass@host:port',
+  },
+
+  // Studio configuration
+  studio: {
+    port: 4983,
+  },
+  
+  // Migrations directory (optional)
+  migrations: {
+    directory: './migrations',
+  },
+};
+`;
+  
+  fs.writeFileSync(path.join(process.cwd(), 'torm.config.ts'), config);
+  console.log('📄 Created: torm.config.ts');
+}
+
+function createJavaScriptConfig(): void {
+  const config = `/**
+ * TORM Configuration
+ * Define your ToonStoreDB connection here
+ */
+
+module.exports = {
+  // ToonStoreDB connection
+  dbCredentials: {
+    host: 'localhost',
+    port: 6379,
+    // For cloud/remote databases:
+    // password: process.env.TOONSTORE_PASSWORD,
+    // url: 'redis://user:pass@host:port',
+  },
+
+  // Studio configuration
+  studio: {
+    port: 4983,
+  },
+  
+  // Migrations directory (optional)
+  migrations: {
+    directory: './migrations',
+  },
+};
+`;
+  
+  fs.writeFileSync(path.join(process.cwd(), 'torm.config.js'), config);
+  console.log('📄 Created: torm.config.js');
 }
 
 // Main CLI logic

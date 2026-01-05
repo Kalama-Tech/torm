@@ -212,6 +212,43 @@ export class StudioServer {
     this.app.get('/api/collection/:name', async (req, res) => {
       try {
         const collection = req.params.name;
+        
+        // Special handling for _migrations
+        if (collection === '_migrations') {
+          const migrationsData = await this.redis.get('toonstore:_migrations');
+          if (migrationsData) {
+            try {
+              const migrations = JSON.parse(migrationsData);
+              const documents = Array.isArray(migrations) 
+                ? migrations.map((name: string) => ({ 
+                    _id: name, 
+                    name, 
+                    appliedAt: 'N/A' 
+                  }))
+                : [];
+              
+              return res.json({
+                collection,
+                count: documents.length,
+                documents,
+              });
+            } catch (e) {
+              return res.json({
+                collection,
+                count: 0,
+                documents: [],
+              });
+            }
+          }
+          
+          return res.json({
+            collection,
+            count: 0,
+            documents: [],
+          });
+        }
+        
+        // Regular collections
         const pattern = `toonstore:${collection}:*`;
         const keys = await this.redis.keys(pattern);
         
@@ -253,6 +290,297 @@ export class StudioServer {
         });
       }
     });
+
+    // API: Get migrations status
+    this.app.get('/api/migrations/status', async (req, res) => {
+      try {
+        const { MigrationRunner } = require('./migrations');
+        const runner = new MigrationRunner({
+          host: this.redis.options.host,
+          port: this.redis.options.port,
+        }, process.env.MIGRATIONS_DIR || path.join(process.cwd(), 'migrations'));
+
+        const applied = await runner.getAppliedMigrations();
+        const pending = await runner.getPendingMigrations();
+        
+        await runner.close();
+
+        res.json({
+          applied: applied.map((name: string) => ({
+            name,
+            appliedAt: new Date().toISOString(), // TODO: Store actual timestamp
+          })),
+          pending: pending.map((m: any) => ({
+            name: m.name,
+            timestamp: m.timestamp,
+          })),
+        });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Run migrations up
+    this.app.post('/api/migrations/up', async (req, res) => {
+      try {
+        const { MigrationRunner } = require('./migrations');
+        const { count } = req.body || {};
+        
+        const runner = new MigrationRunner({
+          host: this.redis.options.host,
+          port: this.redis.options.port,
+        }, process.env.MIGRATIONS_DIR || path.join(process.cwd(), 'migrations'));
+
+        await runner.up(count);
+        await runner.close();
+
+        res.json({ success: true, message: 'Migrations applied successfully' });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Rollback migrations
+    this.app.post('/api/migrations/down', async (req, res) => {
+      try {
+        const { MigrationRunner } = require('./migrations');
+        const { count } = req.body || { count: 1 };
+        
+        const runner = new MigrationRunner({
+          host: this.redis.options.host,
+          port: this.redis.options.port,
+        }, process.env.MIGRATIONS_DIR || path.join(process.cwd(), 'migrations'));
+
+        await runner.down(count);
+        await runner.close();
+
+        res.json({ success: true, message: 'Migration rolled back successfully' });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Create migration
+    this.app.post('/api/migrations/create', async (req, res) => {
+      try {
+        const { MigrationRunner } = require('./migrations');
+        const { name } = req.body;
+        
+        if (!name) {
+          return res.status(400).json({ error: 'Migration name is required' });
+        }
+
+        const runner = new MigrationRunner({
+          host: this.redis.options.host,
+          port: this.redis.options.port,
+        }, process.env.MIGRATIONS_DIR || path.join(process.cwd(), 'migrations'));
+
+        await runner.create(name);
+        await runner.close();
+
+        const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
+        const filename = `${timestamp}_${name}.js`;
+
+        res.json({ success: true, filename, message: 'Migration created successfully' });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Generate TypeScript types
+    this.app.post('/api/generate/types', async (req, res) => {
+      try {
+        const keys = await this.redis.keys('toonstore:*');
+        
+        if (keys.length === 0) {
+          return res.json({ 
+            success: true, 
+            models: [], 
+            message: 'No data found in database' 
+          });
+        }
+
+        // Group by model
+        const modelMap: { [key: string]: any[] } = {};
+        
+        for (const key of keys) {
+          const parts = key.split(':');
+          if (parts.length >= 3 && parts[0] === 'toonstore') {
+            const modelName = parts[1];
+            if (modelName === '_migrations') continue;
+            
+            if (!modelMap[modelName]) {
+              modelMap[modelName] = [];
+            }
+            
+            const data = await this.redis.get(key);
+            if (data) {
+              try {
+                modelMap[modelName].push(JSON.parse(data));
+              } catch (e) {
+                // Skip invalid JSON
+              }
+            }
+          }
+        }
+
+        const modelNames = Object.keys(modelMap);
+
+        // Generate types
+        let output = `/**\n * Auto-generated TypeScript types from ToonStoreDB\n * Generated: ${new Date().toISOString()}\n * \n * ⚠️  DO NOT EDIT MANUALLY - This file is auto-generated\n * Run 'npx torm generate' to regenerate\n */\n\n`;
+
+        for (const modelName of modelNames) {
+          const documents = modelMap[modelName];
+          const fieldTypes: { [key: string]: Set<string> } = {};
+          
+          for (const doc of documents) {
+            for (const [field, value] of Object.entries(doc)) {
+              if (!fieldTypes[field]) {
+                fieldTypes[field] = new Set();
+              }
+              fieldTypes[field].add(this.inferType(value));
+            }
+          }
+
+          const interfaceName = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+          output += `export interface ${interfaceName} {\n`;
+          
+          const fields = Object.keys(fieldTypes).sort((a, b) => {
+            if (a.startsWith('_') && !b.startsWith('_')) return -1;
+            if (!a.startsWith('_') && b.startsWith('_')) return 1;
+            return a.localeCompare(b);
+          });
+
+          for (const field of fields) {
+            const types = Array.from(fieldTypes[field]);
+            const typeStr = types.length > 1 ? types.join(' | ') : types[0];
+            const isOptional = documents.some((doc: any) => !(field in doc));
+            const optionalMarker = isOptional ? '?' : '';
+            
+            output += `  ${field}${optionalMarker}: ${typeStr};\n`;
+          }
+          
+          output += `}\n\n`;
+        }
+
+        // Write to file
+        const outputDir = path.join(process.cwd(), 'src', 'generated');
+        const outputFile = path.join(outputDir, 'torm-types.ts');
+
+        if (!fs.existsSync(outputDir)) {
+          fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        fs.writeFileSync(outputFile, output);
+
+        res.json({
+          success: true,
+          models: modelNames,
+          outputFile,
+          message: `Generated types for ${modelNames.length} model(s)`,
+        });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // API: Preview generated types
+    this.app.get('/api/generate/preview', async (req, res) => {
+      try {
+        const keys = await this.redis.keys('toonstore:*');
+        
+        if (keys.length === 0) {
+          return res.send('// No data found in database');
+        }
+
+        // Group by model
+        const modelMap: { [key: string]: any[] } = {};
+        
+        for (const key of keys) {
+          const parts = key.split(':');
+          if (parts.length >= 3 && parts[0] === 'toonstore') {
+            const modelName = parts[1];
+            if (modelName === '_migrations') continue;
+            
+            if (!modelMap[modelName]) {
+              modelMap[modelName] = [];
+            }
+            
+            const data = await this.redis.get(key);
+            if (data) {
+              try {
+                modelMap[modelName].push(JSON.parse(data));
+              } catch (e) {
+                // Skip
+              }
+            }
+          }
+        }
+
+        const modelNames = Object.keys(modelMap);
+
+        // Generate types
+        let output = `/**\n * Auto-generated TypeScript types from ToonStoreDB\n * Generated: ${new Date().toISOString()}\n */\n\n`;
+
+        for (const modelName of modelNames) {
+          const documents = modelMap[modelName];
+          const fieldTypes: { [key: string]: Set<string> } = {};
+          
+          for (const doc of documents) {
+            for (const [field, value] of Object.entries(doc)) {
+              if (!fieldTypes[field]) {
+                fieldTypes[field] = new Set();
+              }
+              fieldTypes[field].add(this.inferType(value));
+            }
+          }
+
+          const interfaceName = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+          output += `export interface ${interfaceName} {\n`;
+          
+          const fields = Object.keys(fieldTypes).sort();
+
+          for (const field of fields) {
+            const types = Array.from(fieldTypes[field]);
+            const typeStr = types.length > 1 ? types.join(' | ') : types[0];
+            const isOptional = documents.some((doc: any) => !(field in doc));
+            
+            output += `  ${field}${isOptional ? '?' : ''}: ${typeStr};\n`;
+          }
+          
+          output += `}\n\n`;
+        }
+
+        res.contentType('text/typescript').send(output);
+      } catch (error: any) {
+        res.status(500).send(`// Error: ${error.message}`);
+      }
+    });
+  }
+
+  private inferType(value: any): string {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    
+    const type = typeof value;
+    
+    if (type === 'string') return 'string';
+    if (type === 'number') return 'number';
+    if (type === 'boolean') return 'boolean';
+    
+    if (Array.isArray(value)) {
+      if (value.length === 0) return 'any[]';
+      
+      const elementTypes = new Set(value.map((v: any) => this.inferType(v)));
+      if (elementTypes.size === 1) {
+        return `${Array.from(elementTypes)[0]}[]`;
+      }
+      return `(${Array.from(elementTypes).join(' | ')})[]`;
+    }
+    
+    if (type === 'object') return 'any';
+    
+    return 'any';
   }
 
   async start(): Promise<void> {

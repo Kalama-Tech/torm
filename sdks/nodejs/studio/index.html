@@ -463,7 +463,7 @@
         // Load collections on startup
         async function loadCollections() {
             try {
-                const response = await fetch('/studio/api/collections');
+                const response = await fetch('/api/keys');
                 const data = await response.json();
                 const list = document.getElementById('collectionList');
                 list.innerHTML = '';
@@ -471,8 +471,10 @@
                 data.collections.forEach(collection => {
                     const li = document.createElement('li');
                     li.className = 'collection-item';
-                    li.textContent = collection;
-                    li.onclick = () => loadCollection(collection);
+                    li.textContent = `${collection.name} (${collection.count})`;
+                    li.addEventListener('click', function() {
+                        loadCollection(collection.name);
+                    });
                     list.appendChild(li);
                 });
 
@@ -484,25 +486,45 @@
 
         // Load collection data
         async function loadCollection(collection) {
+            console.log('Loading collection:', collection);
             currentCollection = collection;
+            
+            // Update active state
             document.querySelectorAll('.collection-item').forEach(el => el.classList.remove('active'));
-            event.target.classList.add('active');
             
             try {
-                const response = await fetch(`/studio/api/collections/${collection}`);
+                const response = await fetch(`/api/collection/${collection}`);
+                console.log('API Response status:', response.status);
+                
                 const data = await response.json();
-                allKeys = data.data;
+                console.log('Received data:', data);
+                
+                // Transform documents to the format expected by renderData
+                allKeys = data.documents.map(doc => ({
+                    key: `toonstore:${collection}:${doc._id}`,
+                    value: doc
+                }));
+                
+                console.log('Transformed data:', allKeys);
                 renderData(allKeys);
             } catch (error) {
                 console.error('Failed to load collection data:', error);
+                document.getElementById('dataContainer').innerHTML = `
+                    <div class="empty-state">
+                        <h3>Error loading data</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
             }
         }
 
         // Render data table
         function renderData(data) {
+            console.log('renderData called with:', data);
             const container = document.getElementById('dataContainer');
             
-            if (data.length === 0) {
+            if (!data || data.length === 0) {
+                console.log('No data to render');
                 container.innerHTML = `
                     <div class="empty-state">
                         <h3>No data found</h3>
@@ -512,6 +534,23 @@
                 return;
             }
 
+            console.log('Rendering', data.length, 'items');
+            
+            const rows = data.map(item => {
+                const valueStr = JSON.stringify(item.value).substring(0, 100);
+                const itemJson = JSON.stringify(item).replace(/'/g, "\\'");
+                return `
+                    <div class="table-row">
+                        <div class="table-cell key">${item.key}</div>
+                        <div class="table-cell value">${valueStr}...</div>
+                        <div class="table-cell actions">
+                            <button class="btn-small secondary" onclick='editKey(${itemJson})'>Edit</button>
+                            <button class="btn-small danger" onclick='deleteKey("${item.key}")'>Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
             container.innerHTML = `
                 <div class="data-table">
                     <div class="table-row table-header">
@@ -519,24 +558,17 @@
                         <div class="table-cell value">Value</div>
                         <div class="table-cell actions">Actions</div>
                     </div>
-                    ${data.map(item => `
-                        <div class="table-row">
-                            <div class="table-cell key">${item.key}</div>
-                            <div class="table-cell value">${JSON.stringify(item.value).substring(0, 100)}...</div>
-                            <div class="table-cell actions">
-                                <button class="btn-small secondary" onclick='editKey(${JSON.stringify(item)})'>Edit</button>
-                                <button class="btn-small danger" onclick='deleteKey("${item.key}")'>Delete</button>
-                            </div>
-                        </div>
-                    `).join('')}
+                    ${rows}
                 </div>
             `;
+            
+            console.log('Render complete');
         }
 
         // Load stats
         async function loadStats() {
             try {
-                const response = await fetch('/studio/api/stats');
+                const response = await fetch('/api/stats');
                 const data = await response.json();
                 document.getElementById('totalKeys').textContent = data.total_keys;
             } catch (error) {
@@ -556,8 +588,8 @@
                 const key = document.getElementById('modalKey').value;
                 const value = JSON.parse(document.getElementById('modalValue').value);
                 
-                await fetch(`/studio/api/keys/${encodeURIComponent(key)}`, {
-                    method: 'PUT',
+                await fetch(`/api/key/${encodeURIComponent(key)}`, {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ value })
                 });
@@ -579,7 +611,7 @@
                 const key = document.getElementById('modalKey').value;
                 const value = JSON.parse(document.getElementById('modalValue').value);
                 
-                await fetch('/studio/api/keys', {
+                await fetch(`/api/key/${encodeURIComponent(key)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key, value })
@@ -595,7 +627,7 @@
         async function deleteKey(key) {
             if (!confirm(`Delete key "${key}"?`)) return;
             
-            await fetch(`/studio/api/keys/${encodeURIComponent(key)}`, {
+            await fetch(`/api/key/${encodeURIComponent(key)}`, {
                 method: 'DELETE'
             });
             

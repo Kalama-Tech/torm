@@ -212,7 +212,12 @@ npx torm studio
 **Access:** http://localhost:4983
 
 **Configuration:**
-Create or edit `torm.config.ts` in your project root:
+
+You can use either TypeScript or JavaScript config files:
+
+**Option 1: TypeScript Config (Recommended)**
+
+Create `torm.config.ts` in your project root:
 ```typescript
 export default {
   dbCredentials: {
@@ -227,6 +232,30 @@ export default {
   },
 };
 ```
+
+For TypeScript config files, install `tsx` (recommended) or `ts-node`:
+```bash
+npm install -D tsx
+# or
+npm install -D ts-node
+```
+
+**Option 2: JavaScript Config**
+
+Create `torm.config.js` in your project root:
+```javascript
+module.exports = {
+  dbCredentials: {
+    host: 'localhost',
+    port: 6379,
+  },
+  studio: {
+    port: 4983,
+  },
+};
+```
+
+No additional dependencies needed for `.js` config files.
 
 **Features:**
 - 📊 Visual database browser - browse collections and documents
