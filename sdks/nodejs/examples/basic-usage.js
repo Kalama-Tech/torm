@@ -3,15 +3,14 @@
  * 
  * Run: node examples/basic-usage.js
  * 
- * Make sure TORM server is running:
- *   cargo run --package torm-server --release
+ * Make sure ToonStoreDB is running:
+ *   ./toonstoredb
  */
 
 const { TormClient } = require('../dist/index');
 
 // Define User interface
 interface User {
-  id: string;
   name: string;
   email: string;
   age: number;
@@ -21,16 +20,16 @@ interface User {
 async function main() {
   console.log('🚀 TORM Node.js SDK - Basic Usage Example\n');
 
-  // 1. Create client
-  console.log('Connecting to TORM server...');
+  // 1. Create client (connects to ToonStoreDB)
+  console.log('Connecting to ToonStoreDB...');
   const torm = new TormClient({
-    baseURL: 'http://localhost:3001',
-    timeout: 5000,
+    host: 'localhost',
+    port: 6379,
   });
 
-  // Check server health
+  // Check connection health
   const health = await torm.health();
-  console.log('✅ Server health:', health);
+  console.log('✅ ToonStoreDB health:', health);
   console.log();
 
   // 2. Define model with schema
@@ -64,7 +63,6 @@ async function main() {
   console.log('Creating users...');
   
   const alice = await User.create({
-    id: 'user:1',
     name: 'Alice',
     email: 'alice@example.com',
     age: 30,
@@ -73,7 +71,6 @@ async function main() {
   console.log('✅ Created:', alice);
 
   const bob = await User.create({
-    id: 'user:2',
     name: 'Bob',
     email: 'bob@example.com',
     age: 25,
@@ -81,7 +78,6 @@ async function main() {
   console.log('✅ Created:', bob);
 
   const charlie = await User.create({
-    id: 'user:3',
     name: 'Charlie',
     email: 'charlie@example.com',
     age: 35,
@@ -97,7 +93,7 @@ async function main() {
 
   // 5. Find by ID
   console.log('Finding user by ID...');
-  const foundUser = await User.findById('user:1');
+  const foundUser = await User.findById(alice._id);
   console.log('✅ Found user:', foundUser);
   console.log();
 
@@ -129,7 +125,7 @@ async function main() {
 
   // 9. Update document
   console.log('Updating user...');
-  const updated = await User.update('user:1', {
+  const updated = await User.update(alice._id, {
     age: 31,
     website: 'https://alice.com',
   });
@@ -146,7 +142,6 @@ async function main() {
   console.log('Testing validation (invalid email)...');
   try {
     await User.create({
-      id: 'user:4',
       name: 'Invalid',
       email: 'not-an-email',
       age: 25,
@@ -161,7 +156,6 @@ async function main() {
   console.log('Testing validation (age too young)...');
   try {
     await User.create({
-      id: 'user:5',
       name: 'Young',
       email: 'young@example.com',
       age: 10,
@@ -172,17 +166,19 @@ async function main() {
   }
   console.log();
 
-  // 13. Delete documents
-  console.log('Deleting users...');
-  await User.delete('user:1');
-  await User.delete('user:2');
-  await User.delete('user:3');
+  // 13. Delete documents (cleanup)
+  console.log('Cleaning up...');
+  await User.deleteMany();
   console.log('✅ Deleted all users');
   console.log();
 
   // Verify deletion
   const remaining = await User.count();
   console.log(`✅ Remaining users: ${remaining}`);
+
+  // Disconnect
+  await torm.disconnect();
+  console.log('✅ Disconnected from ToonStoreDB');
 
   console.log('\n🎉 Example completed successfully!');
 }

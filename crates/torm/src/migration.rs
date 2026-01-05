@@ -4,22 +4,32 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Type alias for migration functions
+type MigrationFn = Box<dyn Fn(&TormDb) -> Result<()> + Send + Sync>;
+
 /// Migration metadata stored in ToonStore
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Migration {
+    /// Unique migration identifier
     pub id: String,
+    /// Human-readable migration name
     pub name: String,
+    /// Timestamp when migration was applied
     pub applied_at: DateTime<Utc>,
+    /// Checksum for migration validation
     pub checksum: String,
 }
 
 /// Migration file definition
-#[derive(Debug, Clone)]
 pub struct MigrationFile {
+    /// Unique migration identifier
     pub id: String,
+    /// Human-readable migration name
     pub name: String,
-    pub up: Box<dyn Fn(&TormDb) -> Result<()> + Send + Sync>,
-    pub down: Box<dyn Fn(&TormDb) -> Result<()> + Send + Sync>,
+    /// Function to apply the migration
+    pub up: MigrationFn,
+    /// Function to rollback the migration
+    pub down: MigrationFn,
 }
 
 /// Migration manager
@@ -28,6 +38,7 @@ pub struct MigrationManager {
 }
 
 impl MigrationManager {
+    /// Creates a new migration manager
     pub fn new() -> Self {
         Self {
             migrations: Vec::new(),
@@ -137,7 +148,7 @@ impl MigrationManager {
         {
             Ok(data) => {
                 let migrations: HashMap<String, Migration> =
-                    serde_json::from_str(&data).map_err(|e| Error::Serialization(e.to_string()))?;
+                    serde_json::from_str(&data).map_err(Error::Serialization)?;
                 Ok(migrations)
             }
             Err(_) => Ok(HashMap::new()),
@@ -150,15 +161,14 @@ impl MigrationManager {
         let mut migrations = self.get_applied_migrations(db).await?;
         migrations.insert(migration.id.clone(), migration.clone());
 
-        let data =
-            serde_json::to_string(&migrations).map_err(|e| Error::Serialization(e.to_string()))?;
+        let data = serde_json::to_string(&migrations).map_err(Error::Serialization)?;
 
         redis::cmd("SET")
             .arg(key)
             .arg(data)
             .query_async::<()>(&mut db.connection().clone())
             .await
-            .map_err(|e| Error::Database(e.to_string()))?;
+            .map_err(Error::Redis)?;
 
         Ok(())
     }
@@ -169,15 +179,14 @@ impl MigrationManager {
         let mut migrations = self.get_applied_migrations(db).await?;
         migrations.remove(migration_id);
 
-        let data =
-            serde_json::to_string(&migrations).map_err(|e| Error::Serialization(e.to_string()))?;
+        let data = serde_json::to_string(&migrations).map_err(Error::Serialization)?;
 
         redis::cmd("SET")
             .arg(key)
             .arg(data)
             .query_async::<()>(&mut db.connection().clone())
             .await
-            .map_err(|e| Error::Database(e.to_string()))?;
+            .map_err(Error::Redis)?;
 
         Ok(())
     }
@@ -198,13 +207,19 @@ impl Default for MigrationManager {
     }
 }
 
+/// Migration status information
 #[derive(Debug, Clone)]
 pub enum MigrationStatus {
+    /// Migration has been applied
     Applied {
+        /// Migration name
         name: String,
+        /// When the migration was applied
         applied_at: DateTime<Utc>,
     },
+    /// Migration is pending
     Pending {
+        /// Migration name
         name: String,
     },
 }

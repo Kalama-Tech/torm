@@ -22,27 +22,27 @@ func (m *Model) Create(data map[string]interface{}) (map[string]interface{}, err
 			return nil, err
 		}
 	}
-	
+
 	reqBody := map[string]interface{}{"data": data}
 	resp, err := m.client.request("POST", "/api/"+m.collection, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("create failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("create failed with status %d", resp.StatusCode)
 	}
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	if resultData, ok := result["data"].(map[string]interface{}); ok {
 		return resultData, nil
 	}
-	
+
 	return result, nil
 }
 
@@ -53,12 +53,12 @@ func (m *Model) Find() ([]map[string]interface{}, error) {
 		return nil, fmt.Errorf("find failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	if docs, ok := result["documents"].([]interface{}); ok {
 		documents := make([]map[string]interface{}, len(docs))
 		for i, doc := range docs {
@@ -68,7 +68,7 @@ func (m *Model) Find() ([]map[string]interface{}, error) {
 		}
 		return documents, nil
 	}
-	
+
 	return []map[string]interface{}{}, nil
 }
 
@@ -79,20 +79,20 @@ func (m *Model) FindByID(id string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("find by ID failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("find by ID failed with status %d", resp.StatusCode)
 	}
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	return result, nil
 }
 
@@ -103,27 +103,27 @@ func (m *Model) Update(id string, data map[string]interface{}) (map[string]inter
 			return nil, err
 		}
 	}
-	
+
 	reqBody := map[string]interface{}{"data": data}
 	resp, err := m.client.request("PUT", "/api/"+m.collection+"/"+id, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("update failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("update failed with status %d", resp.StatusCode)
 	}
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	if resultData, ok := result["data"].(map[string]interface{}); ok {
 		return resultData, nil
 	}
-	
+
 	return result, nil
 }
 
@@ -134,20 +134,20 @@ func (m *Model) Delete(id string) (bool, error) {
 		return false, fmt.Errorf("delete failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("delete failed with status %d", resp.StatusCode)
 	}
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return false, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	if success, ok := result["success"].(bool); ok {
 		return success, nil
 	}
-	
+
 	return false, nil
 }
 
@@ -158,16 +158,16 @@ func (m *Model) Count() (int, error) {
 		return 0, fmt.Errorf("count failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return 0, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	if count, ok := result["count"].(float64); ok {
 		return int(count), nil
 	}
-	
+
 	return 0, nil
 }
 

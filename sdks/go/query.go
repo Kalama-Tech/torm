@@ -92,7 +92,7 @@ func (qb *QueryBuilder) Skip(n int) *QueryBuilder {
 // Exec executes the query
 func (qb *QueryBuilder) Exec() ([]map[string]interface{}, error) {
 	queryData := make(map[string]interface{})
-	
+
 	if len(qb.filters) > 0 {
 		queryData["filters"] = qb.filters
 	}
@@ -105,27 +105,27 @@ func (qb *QueryBuilder) Exec() ([]map[string]interface{}, error) {
 	if qb.skipVal != nil {
 		queryData["skip"] = *qb.skipVal
 	}
-	
+
 	resp, err := qb.client.request("POST", "/api/"+qb.collection+"/query", queryData)
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("query failed with status %d", resp.StatusCode)
 	}
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	docs, ok := result["documents"].([]interface{})
 	if !ok {
 		return []map[string]interface{}{}, nil
 	}
-	
+
 	documents := make([]map[string]interface{}, 0, len(docs))
 	for _, doc := range docs {
 		if docMap, ok := doc.(map[string]interface{}); ok {
@@ -134,12 +134,12 @@ func (qb *QueryBuilder) Exec() ([]map[string]interface{}, error) {
 			}
 		}
 	}
-	
+
 	// Apply client-side sorting
 	if qb.sortField != nil {
 		qb.sortDocuments(documents)
 	}
-	
+
 	return documents, nil
 }
 
@@ -208,7 +208,7 @@ func (qb *QueryBuilder) matchesFilter(docValue interface{}, operator QueryOperat
 func (qb *QueryBuilder) compareValues(a, b interface{}) int {
 	aFloat, aOk := toFloat64(a)
 	bFloat, bOk := toFloat64(b)
-	
+
 	if aOk && bOk {
 		if aFloat > bFloat {
 			return 1
@@ -217,10 +217,10 @@ func (qb *QueryBuilder) compareValues(a, b interface{}) int {
 		}
 		return 0
 	}
-	
+
 	aStr := fmt.Sprintf("%v", a)
 	bStr := fmt.Sprintf("%v", b)
-	
+
 	if aStr > bStr {
 		return 1
 	} else if aStr < bStr {
@@ -234,16 +234,16 @@ func (qb *QueryBuilder) sortDocuments(docs []map[string]interface{}) {
 	if qb.sortField == nil {
 		return
 	}
-	
+
 	field := qb.sortField.Field
 	ascending := qb.sortField.Order == Asc
-	
+
 	sort.Slice(docs, func(i, j int) bool {
 		valI := docs[i][field]
 		valJ := docs[j][field]
-		
+
 		cmp := qb.compareValues(valI, valJ)
-		
+
 		if ascending {
 			return cmp < 0
 		}
@@ -254,7 +254,7 @@ func (qb *QueryBuilder) sortDocuments(docs []map[string]interface{}) {
 // Helper functions
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
 }
 

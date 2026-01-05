@@ -11,7 +11,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;

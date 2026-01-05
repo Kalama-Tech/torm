@@ -28,17 +28,17 @@ func NewClient(opts *ClientOptions) *Client {
 	if opts == nil {
 		opts = &ClientOptions{}
 	}
-	
+
 	baseURL := opts.BaseURL
 	if baseURL == "" {
 		baseURL = "http://localhost:3001"
 	}
-	
+
 	timeout := opts.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
-	
+
 	return &Client{
 		BaseURL: baseURL,
 		Timeout: timeout,
@@ -66,12 +66,12 @@ func (c *Client) Health() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("health check failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode health response: %w", err)
 	}
-	
+
 	return result, nil
 }
 
@@ -82,19 +82,19 @@ func (c *Client) Info() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("info request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode info response: %w", err)
 	}
-	
+
 	return result, nil
 }
 
 // request makes an HTTP request
 func (c *Client) request(method, path string, body interface{}) (*http.Response, error) {
 	url := c.BaseURL + path
-	
+
 	var reqBody io.Reader
 	if body != nil {
 		jsonData, err := json.Marshal(body)
@@ -103,18 +103,18 @@ func (c *Client) request(method, path string, body interface{}) (*http.Response,
 		}
 		reqBody = bytes.NewBuffer(jsonData)
 	}
-	
+
 	req, err := http.NewRequest(method, url, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	
+
 	return resp, nil
 }

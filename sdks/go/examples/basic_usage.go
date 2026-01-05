@@ -3,26 +3,26 @@ package main
 import (
 	"fmt"
 	"log"
-	
+
 	torm "github.com/toonstore/torm-go"
 )
 
 func main() {
 	fmt.Println("🚀 TORM Go SDK - Basic Usage Example\n")
-	
+
 	// 1. Connect to TORM server
 	fmt.Println("Connecting to TORM server...")
 	client := torm.NewClient(&torm.ClientOptions{
 		BaseURL: "http://localhost:3001",
 	})
-	
+
 	// Check health
 	health, err := client.Health()
 	if err != nil {
 		log.Fatalf("❌ Failed to connect: %v", err)
 	}
 	fmt.Printf("✅ Connected! Status: %v\n\n", health["status"])
-	
+
 	// 2. Define User model with validation
 	fmt.Println("Defining User model...")
 	User := client.Model("User", map[string]torm.ValidationRule{
@@ -46,10 +46,10 @@ func main() {
 		},
 	})
 	fmt.Println("✅ User model defined\n")
-	
+
 	// 3. Create users
 	fmt.Println("Creating users...")
-	
+
 	alice, err := User.Create(map[string]interface{}{
 		"id":     "user:alice",
 		"name":   "Alice Smith",
@@ -62,7 +62,7 @@ func main() {
 	} else {
 		fmt.Printf("✅ Created: %v\n", alice["name"])
 	}
-	
+
 	bob, err := User.Create(map[string]interface{}{
 		"id":     "user:bob",
 		"name":   "Bob Johnson",
@@ -75,7 +75,7 @@ func main() {
 	} else {
 		fmt.Printf("✅ Created: %v\n", bob["name"])
 	}
-	
+
 	charlie, err := User.Create(map[string]interface{}{
 		"id":     "user:charlie",
 		"name":   "Charlie Brown",
@@ -88,7 +88,7 @@ func main() {
 	} else {
 		fmt.Printf("✅ Created: %v\n\n", charlie["name"])
 	}
-	
+
 	// 4. Find all users
 	fmt.Println("Finding all users...")
 	allUsers, err := User.Find()
@@ -101,7 +101,7 @@ func main() {
 		}
 		fmt.Println()
 	}
-	
+
 	// 5. Find user by ID
 	fmt.Println("Finding user by ID...")
 	user, err := User.FindByID("user:alice")
@@ -112,7 +112,7 @@ func main() {
 	} else {
 		fmt.Println("❌ User not found\n")
 	}
-	
+
 	// 6. Query with filters
 	fmt.Println("Querying active users over 25...")
 	results, err := User.Query().
@@ -120,7 +120,7 @@ func main() {
 		Filter("age", torm.Gte, 25).
 		Sort("age", torm.Asc).
 		Exec()
-	
+
 	if err != nil {
 		log.Printf("❌ Query failed: %v\n", err)
 	} else {
@@ -130,7 +130,7 @@ func main() {
 		}
 		fmt.Println()
 	}
-	
+
 	// 7. Update user
 	fmt.Println("Updating user...")
 	updated, err := User.Update("user:bob", map[string]interface{}{
@@ -141,7 +141,7 @@ func main() {
 	} else {
 		fmt.Printf("✅ Updated: %v, new age: %v\n\n", updated["name"], updated["age"])
 	}
-	
+
 	// 8. Count users
 	fmt.Println("Counting users...")
 	count, err := User.Count()
@@ -150,7 +150,7 @@ func main() {
 	} else {
 		fmt.Printf("✅ Total users: %d\n\n", count)
 	}
-	
+
 	// 9. Validation demo
 	fmt.Println("Testing validation...")
 	_, err = User.Create(map[string]interface{}{
@@ -164,7 +164,7 @@ func main() {
 	} else {
 		fmt.Println("❌ Validation didn't catch invalid email\n")
 	}
-	
+
 	// 10. Delete user
 	fmt.Println("Deleting user...")
 	success, err := User.Delete("user:charlie")
@@ -175,7 +175,7 @@ func main() {
 	} else {
 		fmt.Println("❌ Failed to delete user\n")
 	}
-	
+
 	// 11. Verify deletion
 	fmt.Println("Verifying deletion...")
 	user, err = User.FindByID("user:charlie")
@@ -186,6 +186,6 @@ func main() {
 	} else {
 		fmt.Println("❌ User still exists\n")
 	}
-	
+
 	fmt.Println("🎉 Example completed!")
 }

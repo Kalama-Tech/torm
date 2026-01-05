@@ -8,48 +8,48 @@ import (
 
 // ValidationRule defines validation rules for a field
 type ValidationRule struct {
-	Type      string                 `json:"type,omitempty"`      // str, int, float, bool, map, slice
+	Type      string                 `json:"type,omitempty"` // str, int, float, bool, map, slice
 	Required  bool                   `json:"required,omitempty"`
-	Min       *float64               `json:"min,omitempty"`       // For numbers
-	Max       *float64               `json:"max,omitempty"`       // For numbers
+	Min       *float64               `json:"min,omitempty"`        // For numbers
+	Max       *float64               `json:"max,omitempty"`        // For numbers
 	MinLength *int                   `json:"min_length,omitempty"` // For strings
 	MaxLength *int                   `json:"max_length,omitempty"` // For strings
-	Pattern   string                 `json:"pattern,omitempty"`   // Regex pattern
-	Email     bool                   `json:"email,omitempty"`     // Email validation
-	URL       bool                   `json:"url,omitempty"`       // URL validation
-	Validate  func(interface{}) bool `json:"-"`                   // Custom validator
+	Pattern   string                 `json:"pattern,omitempty"`    // Regex pattern
+	Email     bool                   `json:"email,omitempty"`      // Email validation
+	URL       bool                   `json:"url,omitempty"`        // URL validation
+	Validate  func(interface{}) bool `json:"-"`                    // Custom validator
 }
 
 // validateData validates data against schema
 func (m *Model) validateData(data map[string]interface{}, partial bool) error {
 	for field, rules := range m.schema {
 		value, exists := data[field]
-		
+
 		// Required check
 		if rules.Required && !partial && !exists {
 			return fmt.Errorf("validation error: field '%s' is required", field)
 		}
-		
+
 		// Skip if value doesn't exist and not required
 		if !exists {
 			continue
 		}
-		
+
 		// Type check
 		if rules.Type != "" {
 			if err := checkType(value, rules.Type); err != nil {
 				return fmt.Errorf("validation error: field '%s' %v", field, err)
 			}
 		}
-		
+
 		// String validations
 		if str, ok := value.(string); ok {
 			if rules.MinLength != nil && len(str) < *rules.MinLength {
-				return fmt.Errorf("validation error: field '%s' must be at least %d characters", 
+				return fmt.Errorf("validation error: field '%s' must be at least %d characters",
 					field, *rules.MinLength)
 			}
 			if rules.MaxLength != nil && len(str) > *rules.MaxLength {
-				return fmt.Errorf("validation error: field '%s' must be at most %d characters", 
+				return fmt.Errorf("validation error: field '%s' must be at most %d characters",
 					field, *rules.MaxLength)
 			}
 			if rules.Email && !isEmail(str) {
@@ -65,7 +65,7 @@ func (m *Model) validateData(data map[string]interface{}, partial bool) error {
 				}
 			}
 		}
-		
+
 		// Number validations
 		if num, ok := toFloat64(value); ok {
 			if rules.Min != nil && num < *rules.Min {
@@ -75,13 +75,13 @@ func (m *Model) validateData(data map[string]interface{}, partial bool) error {
 				return fmt.Errorf("validation error: field '%s' must be at most %v", field, *rules.Max)
 			}
 		}
-		
+
 		// Custom validation
 		if rules.Validate != nil && !rules.Validate(value) {
 			return fmt.Errorf("validation error: field '%s' failed custom validation", field)
 		}
 	}
-	
+
 	return nil
 }
 

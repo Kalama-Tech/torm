@@ -1,12 +1,12 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Json},
+    response::{Html, Json},
     routing::{delete, get, post, put},
     Router,
 };
 use redis::aio::ConnectionManager;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ pub struct StudioState {
 }
 
 /// Create studio router
-pub fn studio_router(state: StudioState) -> Router {
+pub fn studio_router<S>(state: StudioState) -> Router<S> {
     Router::new()
         .route("/", get(studio_ui))
         .route("/api/keys", get(list_keys))
@@ -53,7 +53,7 @@ async fn list_keys(
     State(state): State<StudioState>,
     Query(query): Query<ListKeysQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
     let pattern = if query.pattern.is_empty() {
         "*".to_string()
     } else {
@@ -79,7 +79,7 @@ async fn get_key(
     State(state): State<StudioState>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     let value: String = redis::cmd("GET")
         .arg(&key)
@@ -108,7 +108,7 @@ async fn update_key(
     Path(key): Path<String>,
     Json(payload): Json<UpdateKeyRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     let value_str = serde_json::to_string(&payload.value)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -116,7 +116,7 @@ async fn update_key(
     redis::cmd("SET")
         .arg(&key)
         .arg(value_str)
-        .query_async::<_, ()>(&mut conn)
+        .query_async::<()>(&mut conn)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -131,11 +131,11 @@ async fn delete_key(
     State(state): State<StudioState>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     redis::cmd("DEL")
         .arg(&key)
-        .query_async::<_, ()>(&mut conn)
+        .query_async::<()>(&mut conn)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -156,7 +156,7 @@ async fn create_key(
     State(state): State<StudioState>,
     Json(payload): Json<CreateKeyRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     let value_str = serde_json::to_string(&payload.value)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -164,7 +164,7 @@ async fn create_key(
     redis::cmd("SET")
         .arg(&payload.key)
         .arg(value_str)
-        .query_async::<_, ()>(&mut conn)
+        .query_async::<()>(&mut conn)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -176,7 +176,7 @@ async fn create_key(
 
 /// Get database stats
 async fn get_stats(State(state): State<StudioState>) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     let dbsize: i64 = redis::cmd("DBSIZE")
         .query_async(&mut conn)
@@ -198,7 +198,7 @@ async fn get_stats(State(state): State<StudioState>) -> Result<Json<Value>, (Sta
 async fn list_collections(
     State(state): State<StudioState>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     let keys: Vec<String> = redis::cmd("KEYS")
         .arg("*")
@@ -226,7 +226,7 @@ async fn get_collection_data(
     State(state): State<StudioState>,
     Path(collection): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let mut conn = state.redis_client.clone();
+    let mut conn = state.redis_client.as_ref().clone();
 
     let pattern = format!("{}:*", collection);
     let keys: Vec<String> = redis::cmd("KEYS")
@@ -239,7 +239,7 @@ async fn get_collection_data(
     for key in &keys {
         if let Ok(value) = redis::cmd("GET")
             .arg(key)
-            .query_async::<_, String>(&mut conn)
+            .query_async::<String>(&mut conn)
             .await
         {
             let parsed_value = serde_json::from_str::<Value>(&value).unwrap_or(json!(value));

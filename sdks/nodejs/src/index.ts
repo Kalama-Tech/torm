@@ -1,18 +1,19 @@
 /**
  * @toonstore/torm - ToonStore ORM Client for Node.js
  * 
- * A Mongoose-style ORM client for ToonStore
+ * A Mongoose-style ORM client for ToonStore connecting directly to Redis
  */
 
-import axios, { AxiosInstance } from 'axios';
+import Redis, { RedisOptions } from 'ioredis';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface TormClientOptions {
-  baseURL?: string;
-  timeout?: number;
+export interface TormClientOptions extends RedisOptions {
+  host?: string;
+  port?: number;
+  url?: string; // Redis connection URL (e.g., redis://localhost:6379)
 }
 
 export interface QueryFilter {
@@ -55,17 +56,29 @@ export interface ModelOptions {
 // ============================================================================
 
 export class TormClient {
-  private client: AxiosInstance;
-  private baseURL: string;
+  private redis: Redis;
+  private connected: boolean = false;
 
   constructor(options: TormClientOptions = {}) {
-    this.baseURL = options.baseURL || 'http://localhost:3001';
-    this.client = axios.create({
-      baseURL: this.baseURL,
-      timeout: options.timeout || 5000,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+    const redisOptions: RedisOptions = {
+      host: options.host || 'localhost',
+      port: options.port || 6379,
+      ...options,
+    };
+
+    if (options.url) {
+      this.redis = new Redis(options.url, redisOptions);
+    } else {
+      this.redis = new Redis(redisOptions);
+    }
+
+    this.redis.on('connect', () => {
+      this.connected = true;
+    });
+
+    this.redis.on('error', (err) => {
+      console.error('Redis connection error:', err);
+      this.connected = false;
     });
   }
 
@@ -81,26 +94,37 @@ export class TormClient {
   }
 
   /**
-   * Get HTTP client instance
+   * Get Redis client instance
    */
-  getClient(): AxiosInstance {
-    return this.client;
+  getRedis(): Redis {
+    return this.redis;
   }
 
   /**
-   * Check server health
+   * Check connection health
    */
-  async health(): Promise<{ status: string; database?: string }> {
-    const response = await this.client.get('/health');
-    return response.data;
+  async health(): Promise<{ status: string; connected: boolean }> {
+    try {
+      await this.redis.ping();
+      return { status: 'ok', connected: true };
+    } catch (error) {
+      return { status: 'error', connected: false };
+    }
   }
 
   /**
-   * Get server info
+   * Close Redis connection
    */
-  async info(): Promise<any> {
-    const response = await this.client.get('/');
-    return response.data;
+  async disconnect(): Promise<void> {
+    await this.redis.quit();
+    this.connected = false;
+  }
+
+  /**
+   * Check if connected
+   */
+  isConnected(): boolean {
+    return this.connected;
   }
 }
 
@@ -127,99 +151,181 @@ export class Model<T extends Record<string, any>> {
   }
 
   /**
+   * Get the Redis key pattern for this collection
+   */
+  private getKeyPattern(id?: string): string {
+    return id ? `toonstore:${this.collectionName}:${id}` : `toonstore:${this.collectionName}:*`;
+  }
+
+  /**
+   * Generate a unique ID
+   */
+  private generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
    * Create a new document
    */
-  async create(data: Partial<T>): Promise<T> {
+  async create(data: Partial<T>): Promise<T & { _id: string }> {
     if (this.options.validate && this.schema) {
-      this.validate(data);
+      await this.validate(data);
     }
 
-    const response = await this.client.getClient().post(
-      `/api/${this.collectionName}`,
-      { data }
-    );
+    const id = this.generateId();
+    const document: T & { _id: string } = {
+      ...(data as T),
+      _id: id,
+      _createdAt: new Date().toISOString(),
+      _updatedAt: new Date().toISOString(),
+    } as any;
 
-    return response.data.data as T;
+    const key = this.getKeyPattern(id);
+    await this.client.getRedis().set(key, JSON.stringify(document));
+
+    return document;
   }
 
   /**
    * Find all documents
    */
-  async find(): Promise<T[]> {
-    const response = await this.client.getClient().get(
-      `/api/${this.collectionName}`
-    );
+  async find(): Promise<Array<T & { _id: string }>> {
+    const redis = this.client.getRedis();
+    const pattern = this.getKeyPattern();
+    const keys = await redis.keys(pattern);
 
-    return response.data.documents as T[];
+    if (keys.length === 0) {
+      return [];
+    }
+
+    const values = await redis.mget(...keys);
+    return values
+      .filter((v): v is string => v !== null)
+      .map(v => JSON.parse(v));
   }
 
   /**
    * Find document by ID
    */
-  async findById(id: string): Promise<T | null> {
-    try {
-      const response = await this.client.getClient().get(
-        `/api/${this.collectionName}/${id}`
-      );
+  async findById(id: string): Promise<(T & { _id: string }) | null> {
+    const key = this.getKeyPattern(id);
+    const value = await this.client.getRedis().get(key);
 
-      return response.data as T;
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        return null;
-      }
-      throw error;
+    if (!value) {
+      return null;
     }
+
+    return JSON.parse(value);
+  }
+
+  /**
+   * Find one document matching criteria
+   */
+  async findOne(filter: Partial<T>): Promise<(T & { _id: string }) | null> {
+    const documents = await this.find();
+    
+    for (const doc of documents) {
+      let matches = true;
+      for (const [key, value] of Object.entries(filter)) {
+        if (doc[key as keyof T] !== value) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        return doc;
+      }
+    }
+
+    return null;
   }
 
   /**
    * Update document by ID
    */
-  async update(id: string, data: Partial<T>): Promise<T> {
-    if (this.options.validate && this.schema) {
-      this.validate(data);
+  async update(id: string, data: Partial<T>): Promise<(T & { _id: string }) | null> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      return null;
     }
 
-    const response = await this.client.getClient().put(
-      `/api/${this.collectionName}/${id}`,
-      { data }
-    );
+    if (this.options.validate && this.schema) {
+      await this.validate(data);
+    }
 
-    return response.data.data as T;
+    const updated = {
+      ...existing,
+      ...data,
+      _updatedAt: new Date().toISOString(),
+    };
+
+    const key = this.getKeyPattern(id);
+    await this.client.getRedis().set(key, JSON.stringify(updated));
+
+    return updated;
   }
 
   /**
    * Delete document by ID
    */
   async delete(id: string): Promise<boolean> {
-    const response = await this.client.getClient().delete(
-      `/api/${this.collectionName}/${id}`
-    );
-
-    return response.data.success === true;
+    const key = this.getKeyPattern(id);
+    const result = await this.client.getRedis().del(key);
+    return result > 0;
   }
 
   /**
    * Count documents
    */
   async count(): Promise<number> {
-    const response = await this.client.getClient().get(
-      `/api/${this.collectionName}/count`
-    );
-
-    return response.data.count;
+    const keys = await this.client.getRedis().keys(this.getKeyPattern());
+    return keys.length;
   }
 
   /**
    * Query documents with filters
    */
   query(): QueryBuilder<T> {
-    return new QueryBuilder<T>(this.client, this.collectionName);
+    return new QueryBuilder<T>(this);
+  }
+
+  /**
+   * Delete all documents in collection
+   */
+  async deleteMany(filter?: Partial<T>): Promise<number> {
+    if (!filter || Object.keys(filter).length === 0) {
+      // Delete all documents in collection
+      const keys = await this.client.getRedis().keys(this.getKeyPattern());
+      if (keys.length === 0) return 0;
+      await this.client.getRedis().del(...keys);
+      return keys.length;
+    }
+
+    // Delete documents matching filter
+    const documents = await this.find();
+    let deleted = 0;
+
+    for (const doc of documents) {
+      let matches = true;
+      for (const [key, value] of Object.entries(filter)) {
+        if (doc[key as keyof T] !== value) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        await this.delete(doc._id);
+        deleted++;
+      }
+    }
+
+    return deleted;
   }
 
   /**
    * Validate data against schema
    */
-  private validate(data: Partial<T>): void {
+  private async validate(data: Partial<T>): Promise<void> {
     if (!this.schema) return;
 
     for (const [field, rules] of Object.entries(this.schema)) {
@@ -250,22 +356,26 @@ export class Model<T extends Record<string, any>> {
             `Validation error: Field '${field}' must be at least ${rules.minLength} characters`
           );
         }
+
         if (rules.maxLength !== undefined && value.length > rules.maxLength) {
           throw new Error(
             `Validation error: Field '${field}' must be at most ${rules.maxLength} characters`
           );
         }
+
         if (rules.pattern && !rules.pattern.test(value)) {
           throw new Error(
-            `Validation error: Field '${field}' does not match pattern`
+            `Validation error: Field '${field}' does not match required pattern`
           );
         }
-        if (rules.email && !this.isEmail(value)) {
+
+        if (rules.email && !this.isValidEmail(value)) {
           throw new Error(
             `Validation error: Field '${field}' must be a valid email`
           );
         }
-        if (rules.url && !this.isURL(value)) {
+
+        if (rules.url && !this.isValidUrl(value)) {
           throw new Error(
             `Validation error: Field '${field}' must be a valid URL`
           );
@@ -279,6 +389,7 @@ export class Model<T extends Record<string, any>> {
             `Validation error: Field '${field}' must be at least ${rules.min}`
           );
         }
+
         if (rules.max !== undefined && value > rules.max) {
           throw new Error(
             `Validation error: Field '${field}' must be at most ${rules.max}`
@@ -287,20 +398,29 @@ export class Model<T extends Record<string, any>> {
       }
 
       // Custom validation
-      if (rules.validate && !rules.validate(value)) {
-        throw new Error(
-          `Validation error: Field '${field}' failed custom validation`
-        );
+      if (rules.validate) {
+        const isValid = await rules.validate(value);
+        if (!isValid) {
+          throw new Error(
+            `Validation error: Field '${field}' failed custom validation`
+          );
+        }
       }
     }
   }
 
-  private isEmail(value: string): boolean {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  private isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   }
 
-  private isURL(value: string): boolean {
-    return /^https?:\/\/.+/.test(value);
+  private isValidUrl(url: string): boolean {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -308,144 +428,126 @@ export class Model<T extends Record<string, any>> {
 // QueryBuilder
 // ============================================================================
 
-export class QueryBuilder<T> {
-  private client: TormClient;
-  private collectionName: string;
-  private filters: QueryFilter[] = [];
-  private sortField?: string;
-  private sortOrder?: 'asc' | 'desc';
+export class QueryBuilder<T extends Record<string, any>> {
+  private model: Model<T>;
+  private filterConditions: QueryFilter[] = [];
+  private sortOptions?: { field: string; order: 'asc' | 'desc' };
   private limitValue?: number;
   private skipValue?: number;
 
-  constructor(client: TormClient, collectionName: string) {
-    this.client = client;
-    this.collectionName = collectionName;
+  constructor(model: Model<T>) {
+    this.model = model;
   }
 
   /**
-   * Add a filter
+   * Add filter condition
    */
-  filter(
-    field: string,
-    operator: QueryFilter['operator'],
-    value: any
-  ): QueryBuilder<T> {
-    this.filters.push({ field, operator, value });
+  where(field: string, operator: QueryFilter['operator'], value: any): this {
+    this.filterConditions.push({ field, operator, value });
     return this;
   }
 
   /**
-   * Filter where field equals value
+   * Shorthand for equals filter
    */
-  where(field: string, value: any): QueryBuilder<T> {
-    return this.filter(field, 'eq', value);
+  equals(field: string, value: any): this {
+    return this.where(field, 'eq', value);
   }
 
   /**
    * Sort results
    */
-  sort(field: string, order: 'asc' | 'desc' = 'asc'): QueryBuilder<T> {
-    this.sortField = field;
-    this.sortOrder = order;
+  sort(field: string, order: 'asc' | 'desc' = 'asc'): this {
+    this.sortOptions = { field, order };
     return this;
   }
 
   /**
-   * Limit results
+   * Limit number of results
    */
-  limit(n: number): QueryBuilder<T> {
-    this.limitValue = n;
+  limit(value: number): this {
+    this.limitValue = value;
     return this;
   }
 
   /**
-   * Skip results
+   * Skip number of results
    */
-  skip(n: number): QueryBuilder<T> {
-    this.skipValue = n;
+  skip(value: number): this {
+    this.skipValue = value;
     return this;
   }
 
   /**
-   * Execute query
+   * Execute the query
    */
-  async exec(): Promise<T[]> {
-    const queryOptions: any = {};
+  async exec(): Promise<Array<T & { _id: string }>> {
+    let results = await this.model.find();
 
-    if (this.filters.length > 0) {
-      queryOptions.filters = this.filters;
-    }
-    if (this.sortField) {
-      queryOptions.sort = { field: this.sortField, order: this.sortOrder };
-    }
-    if (this.limitValue !== undefined) {
-      queryOptions.limit = this.limitValue;
-    }
-    if (this.skipValue !== undefined) {
-      queryOptions.skip = this.skipValue;
-    }
-
-    const response = await this.client.getClient().post(
-      `/api/${this.collectionName}/query`,
-      queryOptions
-    );
-
-    let documents = response.data.documents as T[];
-
-    // Apply client-side filtering (since server returns all for now)
-    if (this.filters.length > 0) {
-      documents = documents.filter((doc) => {
-        return this.filters.every((filter) => {
-          const value = doc[filter.field as keyof T];
-          return this.matchesFilter(value, filter.operator, filter.value);
+    // Apply filters
+    if (this.filterConditions.length > 0) {
+      results = results.filter(doc => {
+        return this.filterConditions.every(filter => {
+          const fieldValue = doc[filter.field as keyof T];
+          
+          switch (filter.operator) {
+            case 'eq':
+              return fieldValue === filter.value;
+            case 'ne':
+              return fieldValue !== filter.value;
+            case 'gt':
+              return fieldValue > filter.value;
+            case 'gte':
+              return fieldValue >= filter.value;
+            case 'lt':
+              return fieldValue < filter.value;
+            case 'lte':
+              return fieldValue <= filter.value;
+            case 'contains':
+              return String(fieldValue).includes(String(filter.value));
+            case 'in':
+              return Array.isArray(filter.value) && filter.value.includes(fieldValue);
+            case 'not_in':
+              return Array.isArray(filter.value) && !filter.value.includes(fieldValue);
+            default:
+              return false;
+          }
         });
       });
     }
 
-    // Apply client-side sorting
-    if (this.sortField) {
-      documents.sort((a, b) => {
-        const aVal = a[this.sortField as keyof T];
-        const bVal = b[this.sortField as keyof T];
-        const comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-        return this.sortOrder === 'desc' ? -comparison : comparison;
+    // Apply sorting
+    if (this.sortOptions) {
+      const { field, order } = this.sortOptions;
+      results.sort((a, b) => {
+        const aVal = a[field as keyof T];
+        const bVal = b[field as keyof T];
+        
+        if (aVal < bVal) return order === 'asc' ? -1 : 1;
+        if (aVal > bVal) return order === 'asc' ? 1 : -1;
+        return 0;
       });
     }
 
-    return documents;
+    // Apply skip
+    if (this.skipValue) {
+      results = results.slice(this.skipValue);
+    }
+
+    // Apply limit
+    if (this.limitValue) {
+      results = results.slice(0, this.limitValue);
+    }
+
+    return results;
   }
 
   /**
-   * Count matching documents
+   * Get count of matching documents
    */
   async count(): Promise<number> {
-    const documents = await this.exec();
-    return documents.length;
-  }
-
-  private matchesFilter(value: any, operator: string, filterValue: any): boolean {
-    switch (operator) {
-      case 'eq':
-        return value === filterValue;
-      case 'ne':
-        return value !== filterValue;
-      case 'gt':
-        return value > filterValue;
-      case 'gte':
-        return value >= filterValue;
-      case 'lt':
-        return value < filterValue;
-      case 'lte':
-        return value <= filterValue;
-      case 'contains':
-        return String(value).includes(String(filterValue));
-      case 'in':
-        return Array.isArray(filterValue) && filterValue.includes(value);
-      case 'not_in':
-        return Array.isArray(filterValue) && !filterValue.includes(value);
-      default:
-        return false;
-    }
+    const results = await this.exec();
+    return results.length;
   }
 }
 
