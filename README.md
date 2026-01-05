@@ -247,27 +247,6 @@ torm/
 
 ---
 
-## 🗺️ Roadmap
-
-### Phase 1: Core ORM (Weeks 5-6)
-- [x] Project structure
-- [ ] Model trait
-- [ ] CRUD operations
-- [ ] Redis integration
-
-### Phase 2: REST API Server (Weeks 5-6)
-- [ ] HTTP server with Axum
-- [ ] CRUD endpoints
-- [ ] Query API
-
-### Phase 3: Language SDKs (Weeks 7-10)
-- [ ] Node.js SDK
-- [ ] Python SDK
-- [ ] Go SDK
-- [ ] PHP SDK
-
----
-
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details

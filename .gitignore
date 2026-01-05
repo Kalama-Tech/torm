@@ -10,6 +10,7 @@
 *.swo
 *~
 docs/
+scripts/
 
 # OS
 .DS_Store
