@@ -1,0 +1,49 @@
+{
+  "name": "@toonstore/create-toonstore-app",
+  "version": "1.0.2",
+  "description": "Interactive installer for ToonStore suite (ToonStoreDB + TORM)",
+  "type": "module",
+  "bin": {
+    "create-toonstore-app": "bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --test",
+    "prepublishOnly": "npm run build",
+    "torm:studio": "torm studio",
+    "torm:migrate": "torm migrate"
+  },
+  "keywords": [
+    "toonstore",
+    "toonstoredb",
+    "torm",
+    "orm",
+    "database",
+    "nosql",
+    "installer",
+    "cli"
+  ],
+  "dependencies": {
+    "@toonstore/torm": "^0.4.0",
+    "chalk": "^5.3.0",
+    "execa": "^8.0.1",
+    "inquirer": "^9.2.12",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.19.28",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "author": "ToonStore Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kalama-tech/torm"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
